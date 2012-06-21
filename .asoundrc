@@ -1,0 +1,67 @@
+pcm.usb0 {
+  type plug
+  slave {
+	pcm "hw:0"
+  }
+}
+ctl.usb0 {
+  type hw
+  card 0
+}
+
+pcm.usb1 {
+  type plug
+  slave {
+	pcm "hw:1"
+  }
+}
+ctl.usb1 {
+  type hw
+  card 1
+}
+
+pcm.!default {
+  type hw
+  card 0
+  device 0
+}
+
+pcm.mixed {
+  type multi
+  #ipc_key 123098
+  #ipc_key_add_uid yes
+
+  slaves {
+    a {
+	  pcm "usb0"
+	  channels 1
+	}
+	b {
+	  pcm "usb1"
+	  channels 1
+	}
+  }
+
+  bindings.0.slave a
+  bindings.0.channel 0
+  bindings.1.slave b
+  bindings.1.channel 0
+
+}
+
+pcm.routed {
+  type route
+  slave.pcm "mixed"
+  slave.channels 2
+  ttable.0.0 1
+  ttable.1.1 1
+}
+
+pcm.together {
+  type plug
+  slave {
+    pcm "routed"
+	channels 2
+	rate 44100
+  }
+}
