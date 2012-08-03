@@ -32,16 +32,23 @@ void mavg_free(struct mavg_t *buf)
 
 void mavg_push_sample(struct mavg_t *buf, int16_t sample)
 {
-	if (buf->full == true) {
-		buf->sum -= buf->samples[buf->offset];
-	}
-	buf->sum += sample;
+	mavg_apply_samples(buf, &sample, 1);
+}
 
-	buf->samples[buf->offset] = sample;
-	buf->offset += 1;
-	if (buf->offset == buf->length) {
-		buf->offset = 0;
-		buf->full = true;
+void mavg_apply_samples(struct mavg_t *buf, int16_t *samples, size_t cnt)
+{
+	for (size_t cycle = 0; cycle < cnt; cycle++) {
+		if (buf->full == true) {
+			buf->sum -= buf->samples[buf->offset];
+		}
+		buf->sum += samples[cycle];
+
+		buf->samples[buf->offset] = samples[cycle];
+		buf->offset += 1;
+		if (buf->offset == buf->length) {
+			buf->offset = 0;
+			buf->full = true;
+		}
 	}
 
 	if (buf->full == true) {

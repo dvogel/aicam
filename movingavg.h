@@ -21,6 +21,7 @@ struct mavg_t {
 struct mavg_t *mavg_new(size_t length);
 void mavg_free(struct mavg_t *buf);
 void mavg_push_sample(struct mavg_t *buf, int16_t sample);
+void mavg_apply_samples(struct mavg_t *buf, int16_t *samples, size_t cnt);
 int16_t mavg_get(struct mavg_t *buf);
 void mavg_printf(struct mavg_t *buf);
 

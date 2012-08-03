@@ -11,7 +11,7 @@ static char *device_name = "plughw:0";
 
 #define STR_FMT_BUF_LEN 1024
 #define SAMPLE_BUFFER_FRAME_LEN 1024
-#define SAMPLE_BUFFER_BYTE_LEN SAMPLE_BUFFER_FRAME_LEN * 16
+#define SAMPLE_BUFFER_BYTE_LEN SAMPLE_BUFFER_FRAME_LEN * 2
 
 
 /* From: http://www.delorie.com/gnu/docs/glibc/libc_428.html
@@ -56,7 +56,6 @@ int64_t timediff_milli(struct timeval *b, struct timeval *a)
 }
 
 
-
 int main(int argc, char *argv[])
 {
 	if (argc > 1) {
@@ -79,50 +78,52 @@ int main(int argc, char *argv[])
 
     /* Open the capture device */
     if ((errno = snd_pcm_open(&pcm, device_name, SND_PCM_STREAM_CAPTURE, 0)) < 0) {
-		printf("snd_pcm_open: %s\n", snd_strerror(errno));
+		fprintf(stderr, "snd_pcm_open: %s\n", snd_strerror(errno));
         goto cleanup;
     }
-	printf("Using device %s\n", device_name);
+	fprintf(stderr, "Using device %s\n", device_name);
 
     if ((errno = snd_pcm_hw_params_malloc(&hw_params)) < 0) {
-        printf("snd_pcm_hw_params_malloc() returned %d.\n", errno);
+        fprintf(stderr, "snd_pcm_hw_params_malloc() returned %d.\n", errno);
         goto cleanup;
     }
 
     if ((errno = snd_pcm_hw_params_any(pcm, hw_params)) < 0) {
-        printf("snd_pcm_hw_params_any() returned %d.\n", errno);
+        fprintf(stderr, "snd_pcm_hw_params_any() returned %d.\n", errno);
         goto cleanup;
     }
 
     if ((errno = snd_pcm_hw_params_set_access(pcm, hw_params, SND_PCM_ACCESS_RW_INTERLEAVED)) < 0) {
-        printf("snd_pcm_hw_params_set_access() returned %d.\n", errno);
+        fprintf(stderr, "snd_pcm_hw_params_set_access() returned %d.\n", errno);
         goto cleanup;
     }
 
     if ((errno = snd_pcm_hw_params_set_format(pcm, hw_params, SND_PCM_FORMAT_S16_LE)) < 0) {
-		printf("snd_pcm_hw_params_set_format: %s\n", snd_strerror(errno));
+		fprintf(stderr, "snd_pcm_hw_params_set_format: %s\n", snd_strerror(errno));
 		goto cleanup;
 	}
     if ((errno = snd_pcm_hw_params_set_rate_near(pcm, hw_params, &rate, &rate_dir)) < 0) {
-		printf("snd_pcm_hw_params_set_rate_near: %s\n", snd_strerror(errno));
+		fprintf(stderr, "snd_pcm_hw_params_set_rate_near: %s\n", snd_strerror(errno));
 		goto cleanup;
 	}
-    if ((errno = snd_pcm_hw_params_set_channels(pcm, hw_params, 2)) < 0) {
-		printf("snd_pcm_hw_params_set_channels: %s\n", snd_strerror(errno));
+    if ((errno = snd_pcm_hw_params_set_channels(pcm, hw_params, 1)) < 0) {
+		fprintf(stderr, "snd_pcm_hw_params_set_channels: %s\n", snd_strerror(errno));
 		goto cleanup;
 	}
-
 
     if ((errno = snd_pcm_hw_params(pcm, hw_params)) < 0) {
-		printf("snd_pcm_hw_params: %s\n", snd_strerror(errno));
+		fprintf(stderr, "snd_pcm_hw_params: %s\n", snd_strerror(errno));
         goto cleanup;
-    }
+	}
 
-	struct mavg_t *left_avg = mavg_new(SAMPLE_BUFFER_FRAME_LEN);
-	struct mavg_t *right_avg = mavg_new(SAMPLE_BUFFER_FRAME_LEN);
+	
+	struct mavg_t *sample_avg = mavg_new(SAMPLE_BUFFER_FRAME_LEN * 3);
+	int16_t sample_avg_value = 0;
 
 	struct timeval start_time;
 	struct timeval current_time;
+
+	int stdout_fileno = fileno(stdout);
 
 	gettimeofday(&start_time, NULL);
     bool shutdown = false;
@@ -130,26 +131,31 @@ int main(int argc, char *argv[])
 
         int frames_read = -1;
         frames_read = snd_pcm_readi(pcm, sample_buffer, SAMPLE_BUFFER_FRAME_LEN);
-        if (frames_read != SAMPLE_BUFFER_FRAME_LEN) {
-            printf("Short read from snd_pcm_readi(%d), got %d.\n", SAMPLE_BUFFER_FRAME_LEN, frames_read);
-            goto cleanup;
+		while (frames_read < 0) {
+			frames_read = snd_pcm_recover(pcm, frames_read, 0);
+		}
+
+        if (frames_read < 0) {
+            fprintf(stderr, "Short read from %s: snd_pcm_readi(%d), got %d.\n", device_name, SAMPLE_BUFFER_FRAME_LEN, frames_read);
+			fprintf(stderr, snd_strerror(errno));
+			exit_status = frames_read;
+			goto cleanup;
         }
 
-		int16_t *p_sample = (int16_t *)sample_buffer;
-		while (p_sample < (int16_t *)sample_buffer + SAMPLE_BUFFER_FRAME_LEN) {
-			mavg_push_sample(left_avg, abs((int)*p_sample));
-			p_sample++;
-			mavg_push_sample(right_avg, abs((int)*p_sample));
-			p_sample++;
+		int16_t *samples = (int16_t *)sample_buffer;
+		for (ssize_t ix = 0; ix < frames_read; ix++) {
+			samples[ix] = abs(samples[ix]);
 		}
+		mavg_apply_samples(sample_avg, (int16_t *)sample_buffer, frames_read);
 
 
 		gettimeofday(&current_time, NULL);
 		int64_t diff = timediff_milli(&current_time, &start_time);
-		if (diff > 1000) {
+		if (diff > 100) {
 			memcpy(&start_time, &current_time, sizeof(struct timeval));
-//			gettimeofday(&start_time, NULL);
-			printf("(%d, %d)\n", mavg_get(left_avg), mavg_get(right_avg));
+
+			sample_avg_value = mavg_get(sample_avg);
+			write(stdout_fileno, &sample_avg_value, sizeof(sample_avg_value));
 			fflush(stdout);
 		}
     }
