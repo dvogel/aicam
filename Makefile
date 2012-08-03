@@ -1,15 +1,18 @@
 
 CC=gcc
-CFLAGS=-Wall -std=c99 -D_POSIX_C_SOURCE -I. -I/usr/include/alsa -lasound
-OBJS=movingavg.o alsarec.o
+CFLAGS=-Wall -std=c99 -D_POSIX_C_SOURCE -I. -I/usr/include/alsa -lasound $(shell pkg-config --cflags --libs gtk+-3.0)
+OBJS=movingavg.o
 
-all: recording
+all: recording trainer
 
 tests: tests/all
 	make -C tests
 
-recording: $(OBJS)
-	$(CC) $(CFLAGS) -orecording $(OBJS)
+recording: $(OBJS) alsarec.o
+	$(CC) $(CFLAGS) -orecording $(OBJS) alsarec.o
 
+trainer: $(OBJS) trainer.o
+	$(CC) $(CFLAGS) -otrainer $(OBJS) trainer.o
 
-
+clean:
+	rm $(OBJS) trainer recording
