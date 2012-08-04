@@ -1,0 +1,8 @@
+trainer
+master
+alsarec
+recording
+sigavg
+fifos
+*.o
+.*.swp

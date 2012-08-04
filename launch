@@ -1,0 +1,32 @@
+#!/bin/bash
+
+if [ ! -d fifos ]; then
+    echo "No fifos/ directory found in the current directory. Be sure you know where you are running this from."
+    exit 1
+fi
+
+if [ ! -x sigavg ]; then
+    echo "./sigavg is not executable or it does not exist."
+    exit 1
+fi
+
+cards=`arecord --list-devices | egrep 'USB PnP Sound Device' | sed -r -e 's/^card ([0-9]+):.*/\1/'`
+cards_started=0
+for card in $cards; do
+    test -e fifos/$card && rm fifos/$card
+    test -e fifos/${card}_avg && rm fifos/${card}_avg
+    mkfifo fifos/$card
+    (arecord --format=S16_LE --device=plughw:$card --channels=1 --rate=44100 --file-type raw - > fifos/$card) &
+    (./sigavg fifos/$card 2>&1 > fifos/${card}_avg) &
+    cards_started=$(($cards_started + 1))
+done
+
+if [ $cards_started -eq 0 ]; then
+    echo "No cards to record from."
+else
+    echo "Started $cards_started cards."
+fi
+
+wait
+
+
